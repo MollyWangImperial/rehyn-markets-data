@@ -9,7 +9,8 @@
 Settings come from the service's environment and are written to data/collector.env and data/turso.env on the disk at
 start, so the scripts read them as they do on a PC: REHYN_SEC_CONTACT, SENTIMENT_DB_URL, SENTIMENT_DB_TOKEN, TURSO_ORG
 and TURSO_API_TOKEN. Lock files left by the last container are cleared first, since their process ids mean nothing in a
-new one. The scripts' own logs are copied to this process's output, so they show in Render's log stream.
+new one. The scripts' own logs are copied to this process's output, so they show in Render's log stream. Nothing runs
+until data/ready exists, which the copy of the PC's data onto the disk creates last.
 """
 import datetime as dt
 import os
@@ -129,6 +130,12 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     threading.Thread(target=follow, daemon=True).start()
+    # Until the copy of the database, headline index and model is fully on the disk, nothing runs: a run on an empty
+    # database would send blank readings over the live ones. The copy ends by creating data/ready.
+    if not (DATA / "ready").exists():
+        say("waiting for the data copy: data/ready appears once rehyn_markets.db, gdelt_titles.db and models/ are copied")
+        while not stopping.is_set() and not (DATA / "ready").exists():
+            stopping.wait(10)
     last_sentiment, watcher_back = 0.0, 0.0
     daily_at = next_daily(dt.datetime.now(dt.timezone.utc))
     say(f"sentiment every {EVERY // 60} minutes; next daily run {daily_at.isoformat()}")
