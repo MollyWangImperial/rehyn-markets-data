@@ -28,3 +28,6 @@ services:
         sync: false
       - key: TURSO_API_TOKEN
         sync: false
+      # The same value as JOBS_TOKEN on rehyn-markets-ai: each job reports to its watchdog after every run.
+      - key: JOBS_TOKEN
+        sync: false

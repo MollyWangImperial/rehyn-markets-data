@@ -21,6 +21,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from core import ROOT, init_db  # noqa: E402
+import checkin  # noqa: E402
 import news_assets  # noqa: E402
 import s_sentiment  # noqa: E402
 import sentiment_job  # noqa: E402
@@ -143,17 +144,26 @@ def watch():
         scorer = s_sentiment.Scorer(con)
         scorer._load()   # loaded once, so a request starts scoring at once
         print("model loaded; watching", flush=True)
+        # One check-in every 5 minutes: requests handled since the last one, or the last error if checks are failing.
+        handled, error, due = 0, "", 0.0
         while True:
             try:
                 for aid, name, at in pending(r):
                     handle(r, con, scorer, aid, name, at)
+                    handled += 1
+                error = ""
             except Exception as e:
                 # A network or Turso error waits a little longer, then the watcher carries on.
-                print(f"{dt.datetime.now(dt.timezone.utc).isoformat()} check failed: {type(e).__name__}: {e}", flush=True)
+                error = f"{type(e).__name__}: {e}"
+                print(f"{dt.datetime.now(dt.timezone.utc).isoformat()} check failed: {error}", flush=True)
                 time.sleep(30)
+            if time.time() >= due:
+                checkin.send("requests", not error, f"checks failing: {error}" if error else f"watching; {handled} requests handled in the last 5 minutes", 5)
+                handled, due = 0, time.time() + 300
             time.sleep(INTERVAL)
-    except BaseException:
+    except BaseException as e:
         print(f"{dt.datetime.now(dt.timezone.utc).isoformat()} watcher stopped:\n{traceback.format_exc()}", flush=True)
+        checkin.send("requests", False, f"watcher stopped: {type(e).__name__}: {e}", 5)
         raise
     finally:
         LOCK.unlink(missing_ok=True)

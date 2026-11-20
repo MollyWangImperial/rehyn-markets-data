@@ -21,6 +21,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from core import ROOT, init_db  # noqa: E402
+import checkin  # noqa: E402
 import model_store  # noqa: E402
 import s_sentiment  # noqa: E402
 import sync_turso  # noqa: E402
@@ -110,21 +111,31 @@ def main(log_to_file=True, backfill_days=None):
             print("request watcher was not running; started it", flush=True)
     except Exception as e:
         print(f"could not start the request watcher: {type(e).__name__}: {e}", flush=True)
-    con = init_db()
-    s_sentiment._migrate(con)
-    r = target()
-    empty = prepare(con, r)
-    result = s_sentiment.run(con, backfill_days)
-    if result is None:
-        return
-    changes, handled = result
-    full = empty or RESYNC.exists()
+    step = "starting"
     try:
-        n = send(con, r, changes, handled, full)
-        RESYNC.unlink(missing_ok=True)
-        print(f"sent to Turso: {'everything' if full else f'{len(changes)} changed assets'}, {n} statements", flush=True)
-    except Exception:
-        RESYNC.write_text("the last send failed; the next run sends everything")
+        con = init_db()
+        s_sentiment._migrate(con)
+        step = "connecting to Turso"
+        r = target()
+        empty = prepare(con, r)
+        step = "scoring"
+        result = s_sentiment.run(con, backfill_days)
+        if result is None:
+            checkin.send("sentiment", True, "skipped: the previous run is still going", 15)
+            return
+        changes, handled = result
+        full = empty or RESYNC.exists()
+        step = "sending to Turso"
+        try:
+            n = send(con, r, changes, handled, full)
+            RESYNC.unlink(missing_ok=True)
+            print(f"sent to Turso: {'everything' if full else f'{len(changes)} changed assets'}, {n} statements", flush=True)
+        except Exception:
+            RESYNC.write_text("the last send failed; the next run sends everything")
+            raise
+        checkin.send("sentiment", True, f"{len(changes)} assets changed, {n} statements sent{' (full resend)' if full else ''}", 15)
+    except BaseException as e:
+        checkin.send("sentiment", False, f"failed while {step}: {type(e).__name__}: {e}", 15)
         raise
 
 
