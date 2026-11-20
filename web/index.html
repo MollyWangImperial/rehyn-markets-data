@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rehyn Markets Data Library</title>
+<script>(function(){var p=new URLSearchParams(location.search),r=document.documentElement;if(!p.has("embed"))return;r.classList.add("embed");var m=p.get("mode");if(m==="dark"||m==="light")r.setAttribute("data-mode",m)})()</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..500&display=swap">
+<link rel="stylesheet" href="/prototype.css">
+<link rel="stylesheet" href="/library.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Browse the database">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><span><svg width="16" height="16" viewBox="0 0 18 18"><path d="M1.6 16.2H16.4" stroke="var(--paper)" stroke-width="1" stroke-linecap="round" opacity=".45"/><path d="M1.6 13.4 L4.4 10.9 L6.7 12.5 L9.5 7.6 L11.7 9.5 L15.2 4.4" fill="none" stroke="var(--paper)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15.4" cy="4.2" r="1.6" fill="var(--paper)"/></svg></span></div>
+      <div class="word">Rehyn Markets<span>Data library</span></div>
+    </div>
+    <button class="newbtn" id="newBtn" type="button">New search <kbd>N</kbd></button>
+    <nav class="hist" id="nav" aria-label="Categories and recent searches"></nav>
+    <div class="acct">
+      <div class="who">
+        <div class="av" aria-hidden="true">DB</div>
+        <div><b>Database</b><small id="dbText">Loading</small></div>
+      </div>
+      <div class="mixbar" id="mix" aria-hidden="true"></div>
+      <div class="mixkey" id="mixKey"></div>
+      <a class="upg" href="#/licences">Licence register</a>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="ribbon" aria-label="Latest closes in the database">
+      <div class="lbl"><span class="dot"></span><span id="snapLabel">LAST CLOSE</span></div>
+      <div class="tape"><div class="tape-in" id="tape"></div></div>
+    </div>
+    <div class="head">
+      <span class="crumb" id="crumb">Data library · Home</span>
+      <div class="mbrand"><div class="mark" aria-hidden="true"><span><svg width="14" height="14" viewBox="0 0 18 18"><path d="M1.6 16.2H16.4" stroke="var(--paper)" stroke-width="1" stroke-linecap="round" opacity=".45"/><path d="M1.6 13.4 L4.4 10.9 L6.7 12.5 L9.5 7.6 L11.7 9.5 L15.2 4.4" fill="none" stroke="var(--paper)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15.4" cy="4.2" r="1.6" fill="var(--paper)"/></svg></span></div>Rehyn Markets</div>
+      <div class="switch" role="group" aria-label="Colour mode">
+        <button type="button" id="tLight" aria-pressed="true"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></g></svg><span class="lbtxt">Ivory</span></button>
+        <button type="button" id="tDark" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7Z" fill="currentColor"/></svg><span class="lbtxt">Ink</span></button>
+      </div>
+    </div>
+
+    <div class="scroll" id="scroll">
+      <div class="wrap">
+        <section class="home" id="home">
+          <span class="badge"><i>REAL</i><span id="heroBadge">Reading the database</span></span>
+          <div class="hrow">
+            <h1 class="h1">Search market data</h1>
+            <a class="browse" href="#/categories">Browse by category
+              <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h9M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+          </div>
+          <p class="lede">Prices, filings, headlines and policy decisions in one place. Ask in plain English and see the numbers, where they came from and what licence they carry.</p>
+          <form class="composer" id="homeForm" autocomplete="off">
+            <label for="homeInput" class="eyebrow" style="font-size:10px">Search query</label>
+            <textarea id="homeInput" rows="2" placeholder="What did Brent do after OPEC decisions?"></textarea>
+            <div class="sug" id="homeSug"></div>
+            <div class="crow">
+              <div class="chips-inline"><span class="pill">Prices</span><span class="pill">Companies</span><span class="pill">News</span><span class="pill">Macro</span><span class="pill">SQL</span></div>
+              <button class="run" type="submit">Search
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h9M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </form>
+          <div class="suggest">
+            <div class="eyebrow">Most asked</div>
+            <div class="chips" id="chips"></div>
+          </div>
+          <div class="snap">
+            <div class="snap-h"><b>Latest in the database</b><span class="eyebrow" id="snapWhen"></span></div>
+            <div class="sgrid" id="sgrid"></div>
+          </div>
+        </section>
+        <section class="thread" id="thread" aria-live="polite"></section>
+        <section class="page" id="page" hidden></section>
+      </div>
+    </div>
+
+    <div class="dock" id="dock">
+      <form class="composer" id="dockForm" autocomplete="off">
+        <label for="dockInput" class="eyebrow" style="font-size:10px">Ask another question</label>
+        <textarea id="dockInput" rows="1" placeholder="Compare gold and bitcoin since 2020"></textarea>
+        <div class="sug" id="dockSug"></div>
+        <div class="crow">
+          <span class="pill">Reads the database only</span>
+          <button class="run" type="submit">Search
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h9M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>
+
+<nav class="bottomnav" aria-label="Mobile navigation">
+  <a href="#/" id="mAsk" class="on"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Ask</a>
+  <a href="#/library" id="mLib"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Library</a>
+  <a href="#/licences" id="mLic"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.8 16 5v5c0 3.6-2.4 6-6 7.2C6.4 16 4 13.6 4 10V5l6-2.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Licences</a>
+</nav>
+<div class="toast" id="toast" role="status"></div>
+<script src="/library.js"></script>
+</body>
+</html>

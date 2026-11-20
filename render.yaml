@@ -1,0 +1,30 @@
+services:
+  # The data pipeline: the request watcher, news sentiment every 15 minutes and the daily collector at 06:30 London.
+  # Pro (2 CPU, 4 GB) because the watcher and a 15 minute run can each hold the sentiment model (about 1.2 GB) while
+  # the daily collector builds the public edition. The disk holds the database, the headline index and the model.
+  - type: worker
+    name: rehyn-markets-pipeline
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: pro
+    region: singapore
+    autoDeploy: true
+    disk:
+      name: pipeline-data
+      mountPath: /app/data
+      sizeGB: 20
+    envVars:
+      - key: REHYN_TORCH_THREADS
+        value: "2"
+      # Written to data/collector.env at start. SENTIMENT_DB_TOKEN must be able to write to the sentiment database.
+      - key: REHYN_SEC_CONTACT
+        sync: false
+      - key: SENTIMENT_DB_URL
+        sync: false
+      - key: SENTIMENT_DB_TOKEN
+        sync: false
+      # The Turso organisation that holds rehyn-markets-public: the model copy and the daily public edition sync.
+      - key: TURSO_ORG
+        sync: false
+      - key: TURSO_API_TOKEN
+        sync: false
