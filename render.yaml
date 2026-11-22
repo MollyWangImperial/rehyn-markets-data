@@ -1,12 +1,14 @@
 services:
   # The data pipeline: the request watcher, news sentiment every 15 minutes and the daily collector at 06:30 London.
-  # Pro (2 CPU, 4 GB) because the watcher and a 15 minute run can each hold the sentiment model (about 1.2 GB) while
-  # the daily collector builds the public edition. The disk holds the database, the headline index and the model.
+  # Standard (1 CPU, 2 GB). The watcher keeps the sentiment model loaded and a 15 minute run loads a second copy for a
+  # few minutes; measured memory was about 0.5 GB idle and 1.5 GB at its peak (22 November 2026), so 2 GB has room.
+  # Move up to Pro (2 CPU, 4 GB) only if Render shows memory near the limit. The disk holds the database, the headline
+  # index and the model.
   - type: worker
     name: rehyn-markets-pipeline
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: pro
+    plan: standard
     region: singapore
     autoDeploy: true
     disk:
