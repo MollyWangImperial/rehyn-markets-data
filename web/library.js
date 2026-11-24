@@ -30,6 +30,17 @@ function labels(d){
   var cls=req?"lic fee Required":"lic "+esc(d.tier);
   return '<button type="button" class="'+cls+' licbtn" data-terms="'+id+'" aria-expanded="false" title="See the terms">'+esc(txt)+'</button>';
 }
+/* What the site uses a dataset for, from cat_dataset.used_for. The news feed keeps its own headlines, so no dataset has it yet. */
+var USES=[["scenario","Scenario runs"],["sentiment","Sentiment"],["newsfeed","News feed"],["database","Database page"]];
+function usedFor(d,key){return String(d.used_for||"").split(",").indexOf(key)>=0}
+function usesText(d){return USES.filter(function(u){return usedFor(d,u[0])}).map(function(u){return u[1]}).join(", ")}
+function usesNav(key){
+  var all=[];data.categories.forEach(function(c){all=all.concat(c.datasets)});
+  if(!all.some(function(d){return d.used_for}))return "";
+  return '<nav class="uses-nav" aria-label="Datasets by purpose">'+[["","All datasets"]].concat(USES).map(function(u){
+    var n=u[0]?all.filter(function(d){return usedFor(d,u[0])}).length:all.length;
+    return '<a class="chip'+(u[0]===key?" on":"")+'" href="#/'+(u[0]?"use/"+u[0]:"library")+'"'+(u[0]===key?' aria-current="page"':"")+'>'+esc(u[1])+' <span class="n">'+n+'</span></a>'}).join("")+'</nav>';
+}
 function termsHTML(d){
   if(!d)return "";
   var u=safe(d.terms_url),row=function(k,v){return v?'<dt>'+esc(k)+'</dt><dd>'+v+'</dd>':""};
@@ -281,7 +292,7 @@ function nav(id){["mAsk","mLib","mLic"].forEach(function(x){$(x).classList.toggl
 function dsCard(d){
   var span=d.first_date?fmtDay(d.first_date)+" to "+fmtDay(d.last_date):"";
   var state=d.rows?'<b>'+compact(d.rows)+'</b>':"";
-  return '<div class="ds" data-href="#/dataset/'+esc(d.id)+'"><a class="dsn" href="#/dataset/'+esc(d.id)+'"><b>'+esc(d.name)+'</b></a><p>'+esc(d.blurb)+'</p><span class="dr">'+labels(d)+state+'<span>'+esc(span)+'</span></span>'+termsHTML(d)+'</div>';
+  return '<div class="ds" data-href="#/dataset/'+esc(d.id)+'"><a class="dsn" href="#/dataset/'+esc(d.id)+'"><b>'+esc(d.name)+'</b></a><p>'+esc(d.blurb)+'</p>'+(usesText(d)?'<span class="uses">Used for: '+esc(usesText(d))+'</span>':"")+'<span class="dr">'+labels(d)+state+'<span>'+esc(span)+'</span></span>'+termsHTML(d)+'</div>';
 }
 function viewCategories(){
   if(!data)return;
@@ -289,12 +300,25 @@ function viewCategories(){
   $("page").innerHTML='<a class="back" href="#/">‹ Search</a><div><h1 class="page-t">Browse by category</h1></div><p class="page-l">Explore the available data by subject.</p><div class="fear"><div class="fear-h"><b>Categories</b><span class="eyebrow">Rows</span></div>'+catsHTML()+'</div>';
   renderNav();
 }
+function viewUse(key){
+  if(!data)return;
+  var use=USES.filter(function(u){return u[0]===key})[0];
+  if(!use)return viewLibrary();
+  showPage(use[1],"mLib");
+  var part=data.categories.map(function(c){
+    var list=c.datasets.filter(function(d){return usedFor(d,key)}).sort(function(a,b){return (b.rows||0)-(a.rows||0)});
+    return list.length?'<h2 class="block-h" style="font-size:20px;margin-top:10px">'+esc(c.name)+'</h2><div class="dsl">'+list.map(dsCard).join("")+'</div>':"";
+  }).join("");
+  $("page").innerHTML='<a class="back" href="#/library">‹ All datasets</a><div><div class="eyebrow">Datasets by purpose</div><h1 class="page-t">'+esc(use[1])+'</h1></div>'+usesNav(key)+
+    (part||'<p class="page-l">'+(key==="newsfeed"?"The news feed collects its headlines live and keeps them apart from this library.":"No dataset has this purpose.")+'</p>');
+  renderNav();
+}
 function viewLibrary(id){
   if(!data)return;
   var cats=id?data.categories.filter(function(c){return c.id===id}):data.categories;
   showPage(id&&cats[0]?cats[0].name:"Library","mLib");
   var h=id?'<a class="back" href="#/library">‹ All categories</a>':"";
-  if(!id)h+='<div><div class="eyebrow">Data library</div><h1 class="page-t">Dataset catalogue</h1></div>';
+  if(!id)h+='<div><div class="eyebrow">Data library</div><h1 class="page-t">Dataset catalogue</h1></div>'+usesNav("");
   h+=cats.map(function(c){
     var list=c.datasets.slice().sort(function(a,b){return (b.rows||0)-(a.rows||0)});
     if(c.id==="licensed")return (id?'<div><h1 class="page-t">'+esc(c.name)+'</h1></div><p class="page-l">'+esc(c.blurb)+'</p>':'<h2 class="block-h" style="font-size:20px;margin-top:10px">'+esc(c.name)+'</h2>')+licenceHTML(list.map(toLicItem));
@@ -347,7 +371,7 @@ function viewDataset(id){
     var kv=function(k,v){return v?'<dt>'+esc(k)+'</dt><dd>'+v+'</dd>':""},link=function(u,t){u=safe(u);return u?'<a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer">'+esc(t||u)+'</a>':""};
     var h='<a class="back" href="#/library/'+esc(d.category_id)+'">‹ '+esc(d.category)+'</a><div><h1 class="page-t">'+esc(d.name)+'</h1></div><p class="page-l">'+esc(d.blurb)+'</p>';
     h+='<div class="statgrid"><div><span class="sl">Rows</span><span class="sv"'+(d.rows?'>'+Number(d.rows).toLocaleString("en-GB"):' style="font-size:15px">'+"None")+'</span></div><div><span class="sl">From</span><span class="sv" style="font-size:15px">'+esc(fmtDay(d.first_date)||"n/a")+'</span></div><div><span class="sl">To</span><span class="sv" style="font-size:15px">'+esc(fmtDay(d.last_date)||"n/a")+'</span></div><div><span class="sl">Updates</span><span class="sv" style="font-size:15px">'+esc(d.cadence||"n/a")+'</span></div></div>';
-    h+='<div class="panel"><div>'+labels(d)+'</div><dl class="kv">'+kv("Source",link(d.source_url,d.source_name)||esc(d.source_name))+kv("Licence",esc(d.licence))+kv("What it means",esc(d.licence_note))+kv("Next step",esc(d.licence_route))+kv("Cost",esc(d.price_note))+kv("Credit line",esc(d.attribution))+kv("Terms read",link(d.terms_url))+kv("Gap",esc(d.gap_note))+kv("Table",d.table_name?'<code style="font-family:var(--mono);font-size:12.5px">'+esc(d.table_name)+'</code>':"")+'</dl></div>';
+    h+='<div class="panel"><div>'+labels(d)+'</div><dl class="kv">'+kv("Used for",esc(usesText(d)))+kv("Source",link(d.source_url,d.source_name)||esc(d.source_name))+kv("Licence",esc(d.licence))+kv("What it means",esc(d.licence_note))+kv("Next step",esc(d.licence_route))+kv("Cost",esc(d.price_note))+kv("Credit line",esc(d.attribution))+kv("Terms read",link(d.terms_url))+kv("Gap",esc(d.gap_note))+kv("Table",d.table_name?'<code style="font-family:var(--mono);font-size:12.5px">'+esc(d.table_name)+'</code>':"")+'</dl></div>';
     if(d.series.length){h+=tableHTML({title:d.series.length+" series",columns:["Series","Name","Frequency","From","To"],rows:d.series.slice(0,200).map(function(s){return [s.series_id,s.title,s.frequency||"",fmtDay(s.first_date),fmtDay(s.last_date)]})})}
     if(d.sample.length){var cols=Object.keys(d.sample[0]);h+=tableHTML({title:"Latest rows",columns:cols,rows:d.sample.map(function(r){return cols.map(function(c){var v=r[c];return v==null?"":typeof v==="number"?(Number.isInteger(v)?String(v):v.toPrecision(6)):String(v)})})})}
     if(d.columns.length)h+=tableHTML({title:"Fields",columns:["Field","Type"],rows:d.columns.map(function(c){return [c.name,c.type]})});
@@ -382,6 +406,7 @@ function route(){
   if(h==="#/categories")return viewCategories();
   if(h==="#/library")return viewLibrary();
   if((m=h.match(/^#\/library\/([a-z]+)$/)))return viewLibrary(m[1]);
+  if((m=h.match(/^#\/use\/([a-z]+)$/)))return viewUse(m[1]);
   if(h==="#/licences")return viewLicences();
   if(h==="#/sources")return viewSources();
   if((m=h.match(/^#\/dataset\/([a-z0-9_]+)$/)))return viewDataset(m[1]);

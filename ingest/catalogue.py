@@ -149,7 +149,7 @@ D = [
          terms_url="https://www.oecd.org/en/about/terms-conditions.html", tier="TERMS", licence="OECD terms and conditions, CC BY 4.0 for content from July 2024",
          licence_note="OECD data may be copied, adapted and shared for any purpose, including commercial use, with credit to the OECD. The OECD asks users to check each dataset's metadata for third party owners; interest rates and prices come from national sources. The owner read the terms and approved this use on 24 November 2026; each dataset's metadata has not been checked.",
          attribution="Source: OECD Data Explorer (composite leading indicators, financial market statistics, labour force statistics, prices)", cadence="Monthly"),
-    dict(id="macro_bis", category_id="macro", name="Central bank rates, credit and house prices", blurb="Policy rates of about 40 central banks from 1990, house prices for about 60 countries, credit to households, companies and governments, credit-to-GDP gaps, effective exchange rates and monthly dollar exchange rates for about 150 currencies.",
+    dict(id="macro_bis", category_id="macro", name="Central bank rates, credit and house prices", blurb="Policy rates of about 40 central banks from 1990, house prices for about 60 countries, credit to households, companies and governments, credit-to-GDP gaps, effective exchange rates and monthly dollar exchange rates for about 130 currencies.",
          table_name="ts_obs", row_filter="series_id LIKE 'bis:%'", date_col="date", source_name="Bank for International Settlements", source_url="https://data.bis.org",
          terms_url="https://data.bis.org/help/legal", tier="TERMS", licence="BIS terms of use for statistics",
          licence_note="Free with the BIS cited as the source and no suggestion of endorsement, provided including the statistics adds no extra charge for subscribers or other users: they must stay inside the general subscription, never a paid add-on.",
@@ -295,7 +295,25 @@ D = [
 ]
 
 FIELDS = ("id", "category_id", "name", "blurb", "table_name", "row_filter", "date_col", "source_name", "source_url", "terms_url",
-          "tier", "licence", "licence_note", "price_note", "attribution", "status", "cadence", "gap_note", "licence_fee", "licence_route", "price_short", "fee_kind")
+          "tier", "licence", "licence_note", "price_note", "attribution", "status", "cadence", "gap_note", "licence_fee", "licence_route", "price_short", "fee_kind", "used_for")
+
+# What the site uses each dataset for. Only data that is hosted is used at all, and one dataset can serve several purposes:
+#   scenario   the scenario AI reads it from the Turso database rehyn-markets-public (ai-service tools.py and prompts.py)
+#   sentiment  the news sentiment run reads or writes it (s_sentiment.py); its results live in rehyn-sentiment-molly
+#   newsfeed   the live news feed, which collects its own headlines and keeps them in rehyn-newsfeed, so no dataset has it yet
+#   database   the Database page shows it, from the public edition
+SCENARIO_TABLES = {"ts_obs", "co_fact", "co_filing", "co_insider_tx", "co_fund_holding", "pos_cot", "doc_release", "nw_article", "nw_event",
+                   "geo_conflict_event", "geo_sanction", "geo_sanction_list", "geo_quake", "ref_sec_ticker"}
+SENTIMENT_SETS = {"live_sentiment", "live_sentiment_items", "geo_gdelt_events", "events_wiki", "docs_fed", "docs_federal_register"}
+
+
+def used_for(d, rows):
+    """The purposes of a dataset that is hosted, as public_edition.py decides it. Anything else is not used on the site."""
+    fee, route = fee_for(d)
+    if fee != "None" or route or d["tier"] not in ("OPEN", "TERMS") or not d.get("table_name") or not rows:
+        return None
+    uses = [name for name, yes in (("scenario", d["table_name"] in SCENARIO_TABLES), ("sentiment", d["id"] in SENTIMENT_SETS), ("database", True)) if yes]
+    return ",".join(uses)
 
 # Licence fee label for use on a paid product. Read with price_note, which holds any published price.
 #   Required  money must be paid to use this data, or a paid source must replace it
@@ -416,7 +434,7 @@ def refresh(con):
     with Run(con, "catalogue") as run_:
         write_sources(con)
         have = {r[1] for r in con.execute("PRAGMA table_info(cat_dataset)")}
-        for col in ("licence_fee", "licence_route", "price_short", "fee_kind"):
+        for col in ("licence_fee", "licence_route", "price_short", "fee_kind", "used_for"):
             if col not in have:
                 con.execute(f"ALTER TABLE cat_dataset ADD COLUMN {col} TEXT")
         con.executemany("INSERT OR REPLACE INTO cat_category VALUES(?,?,?,?)", CATEGORIES)
@@ -439,6 +457,7 @@ def refresh(con):
                 col = row["date_col"]
                 pick = f"count(*), min({col}), max({col})" if col else "count(*), NULL, NULL"
                 rows, first, last = con.execute(f"SELECT {pick} FROM {table}{where}").fetchone()
+            row["used_for"] = used_for(d, rows)
             if not rows and row["status"] == "live":
                 row["status"] = "partial"
             con.execute(

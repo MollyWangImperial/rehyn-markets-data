@@ -32,8 +32,7 @@ RESYNC = ROOT / "data" / "sentiment_resync"
 
 def target():
     """Where the results go: news sentiment's own Turso database when SENTIMENT_DB_URL and SENTIMENT_DB_TOKEN (a token
-    that can write) are in data/collector.env, otherwise the Rehyn database. The model is always read from the Rehyn
-    database, which only costs reads."""
+    that can write) are in data/collector.env, otherwise the Rehyn database. The model is read from the same place."""
     cfg = {}
     for line in (ROOT / "data" / "collector.env").read_text(encoding="utf-8-sig").splitlines():
         if "=" in line and not line.lstrip().startswith("#"):

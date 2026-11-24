@@ -1,4 +1,4 @@
-"""Keeps the news sentiment model in the hosted Turso database, so the scoring job never depends on a third-party hub.
+"""Keeps the news sentiment model in news sentiment's own Turso database, so the scoring job never depends on a third-party hub.
 
   python -I ingest/model_store.py upload    one time: download the files from Hugging Face and store them in Turso
   python -I ingest/model_store.py fetch     copy the files from Turso to data/models/, checking each file's SHA-256
@@ -7,7 +7,8 @@
 The model is mrm8488/deberta-v3-ft-financial-news-sentiment-analysis: microsoft/deberta-v3-small fine-tuned on the
 Financial PhraseBank, MIT licence. Files are stored in 2 MB parts in ml_model_part, listed in ml_model with size, hash,
 source and revision. These tables live only in Turso; sync_turso.py skips the ml_ prefix, so the daily sync never
-touches them. Write access uses the same short-lived token as the sync. Tokens are never printed.
+touches them. SENTIMENT_DB_URL and SENTIMENT_DB_TOKEN in data/collector.env say where; without them the Rehyn database
+is used, with the same short-lived token as the sync. Tokens are never printed.
 """
 import argparse
 import base64
@@ -42,10 +43,12 @@ TABLES = [
 def remote():
     cfg = {}
     path = ROOT / "data" / "collector.env"
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         if "=" in line and not line.lstrip().startswith("#"):
             k, v = line.split("=", 1)
             cfg[k.strip()] = v.strip()
+    if cfg.get("SENTIMENT_DB_URL") and cfg.get("SENTIMENT_DB_TOKEN"):
+        return sync_turso.Remote(cfg["SENTIMENT_DB_URL"], cfg["SENTIMENT_DB_TOKEN"])
     if not cfg.get("TURSO_ENV"):
         sys.exit("TURSO_ENV is not set in data/collector.env")
     return sync_turso.connect(types.SimpleNamespace(url=None, token=None, env=cfg["TURSO_ENV"]))

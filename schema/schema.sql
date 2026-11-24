@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS cat_dataset(
   last_date TEXT,
   refreshed_at TEXT,
   licence_fee TEXT,           -- Required, Possible or None, for use on a paid product
-  licence_route TEXT          -- What has to happen before a paid product can use this data
+  licence_route TEXT,         -- What has to happen before a paid product can use this data
+  used_for TEXT               -- What the site uses it for: scenario, sentiment, newsfeed, database. Empty when the site does not use it
 );
 
 CREATE TABLE IF NOT EXISTS cat_run(

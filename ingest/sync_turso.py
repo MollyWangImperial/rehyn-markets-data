@@ -41,8 +41,8 @@ LEVELS = {
 }
 WHOLE_MAX, WHOLE_PARTS = 5000, 4   # a partition of at most this many rows, with this many changed parts, can go whole
 LAST = ("cat_category", "cat_dataset", "cat_source")   # the catalogue goes last, after the data it describes
-# ml_ holds the stored sentiment model, kept only in Turso. live_ holds sentiment results, which
-# ingest/sentiment_job.py sends every 15 minutes; comparing them daily would rewrite them for nothing.
+# ml_ holds the stored sentiment model and live_ the sentiment results. Both live in the news sentiment database, which
+# ingest/model_store.py and ingest/sentiment_job.py write; nothing here belongs in the public database.
 SKIP_PREFIX = ("sqlite_", "fts_doc_", "ml_", "live_")
 
 
@@ -202,8 +202,9 @@ def compare(remote, local, table, cols, levels, conds, stats):
             compare(remote, local, table, cols, levels[1:], sub, stats)
 
 
-def sync_pass(remote, local, order):
-    """Compares and sends every table once. Returns the number of partitions that changed."""
+def sync_pass(remote, local, order, rebuild=None):
+    """Compares and sends every table once. Returns the number of partitions that changed. Tables in rebuild are dropped,
+    made again with their new definition and filled when their turn comes."""
     total = 0
     for _, name, _, _ in order:
         stats = {"rows": 0, "parts": 0}
@@ -214,6 +215,9 @@ def sync_pass(remote, local, order):
                 local.execute(f'SELECT {e} FROM "{name}" LIMIT 1')
         except sqlite3.Error:
             levels = []
+        if rebuild and name in rebuild:
+            remote.run([(f'DROP TABLE "{name}"', []), (rebuild.pop(name), [])])
+            print(f"rebuilt {name}: its definition changed", flush=True)
         compare(remote, local, name, cols, levels, [], stats)
         if stats["parts"]:
             print(f"{name}: {stats['parts']} partitions changed, {stats['rows']:,} rows sent", flush=True)
@@ -235,6 +239,7 @@ def main():
     there = {r[0]: r[1] for r in remote.rows("SELECT name, sql FROM sqlite_master WHERE type IN ('table','index','view') AND sql IS NOT NULL")}
     objects = local.execute("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL").fetchall()
     tables = [o for o in objects if o[0] == "table" and not o[1].startswith(SKIP_PREFIX)]
+    rebuild = {}
     for kind, name, _, sql in tables:
         if name not in there:
             remote.run([(sql, [])])
@@ -246,6 +251,9 @@ def main():
             # A changed definition rebuilds the table: always when its columns differ, and for small tables also when only
             # a constraint changed. Large tables keep their rows when the columns still match.
             if "VIRTUAL" not in (sql or "").upper() and (cols_there != mine or (not same_sql and name not in LEVELS)):
+                if name in LAST:
+                    rebuild[name] = sql   # the catalogue is rebuilt just before it is filled, so readers find it empty for a moment at most
+                    continue
                 remote.run([(f'DROP TABLE "{name}"', []), (sql, [])])
                 print(f"rebuilt {name}: its definition changed", flush=True)
 
@@ -253,13 +261,13 @@ def main():
     # A row whose unique key moved to another partition is replaced on insert, which changes that partition in turn,
     # so the pass repeats until nothing differs.
     for pass_no in range(1, 4):
-        changed = sync_pass(remote, local, order)
+        changed = sync_pass(remote, local, order, rebuild)
         if not changed:
             break
         print(f"pass {pass_no}: {changed} partitions changed", flush=True)
 
-    for kind, name, _, sql in objects:
-        if kind in ("index", "view") and name not in there and not name.startswith(SKIP_PREFIX):
+    for kind, name, table, sql in objects:
+        if kind in ("index", "view") and name not in there and not name.startswith(SKIP_PREFIX) and not table.startswith(SKIP_PREFIX):
             remote.run([(sql, [])])
             print(f"created {kind} {name}", flush=True)
 

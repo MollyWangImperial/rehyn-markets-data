@@ -80,6 +80,18 @@ The Database tab on the public site uses a hosted copy with Free to use datasets
 
 To update it, run `python -I ingest/public_edition.py <folder>`. It stops if a row from another tier reaches the output. Then copy `public.db.gz`, `server/` and `web/` into `data-library/` in the website repository and push.
 
+## Databases by purpose
+
+Each purpose on the site has its own database. `cat_dataset.used_for` records what every dataset is used for, set in `ingest/catalogue.py` and shown on the Database page. One dataset can serve several purposes; it is never copied into a second database for that.
+
+| Purpose | Database | Written by | Read by |
+|---|---|---|---|
+| Scenario runs | Turso `rehyn-markets-public` | `ingest/sync_turso.py`, daily | the AI service (`TURSO_DATABASE_URL`) |
+| Sentiment | Turso `rehyn-sentiment-molly`: `live_sentiment_*`, `ml_*` | `ingest/sentiment_job.py` every 15 minutes, `ingest/model_store.py` | the AI service (`SENTIMENT_DB_URL`) |
+| News feed | Turso `rehyn-newsfeed`: `live_news` | the AI service (`NEWS_DB_URL`) | the AI service |
+| Database page | `public.db`, the public edition | `ingest/public_edition.py` | the data library service |
+| Private, never on the site | Turso `rehyn-prices-personal` | scripts on the PC only | the local Backtest |
+
 ## Refreshing
 
 ```bash
@@ -109,7 +121,7 @@ Each run of `ingest/sentiment_job.py`:
 
 Prices and positioning are not inputs, because the model reads text only.
 
-The model is stored in the hosted Turso database (`ml_model`, `ml_model_part`, 579 MB) and loaded from there into `data/models/`, with each file's SHA-256 checked. `sync_turso.py` skips the `ml_` and `live_` tables.
+The model is stored in news sentiment's own Turso database (`ml_model`, `ml_model_part`, 579 MB) and loaded from there into `data/models/`, with each file's SHA-256 checked. `sync_turso.py` skips the `ml_` and `live_` tables.
 
 ```bash
 python -I ingest/model_store.py status     # what Turso holds
