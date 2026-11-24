@@ -10,6 +10,8 @@ import csv
 import datetime as dt
 import io
 import os
+import re
+import time
 import xml.etree.ElementTree as ET
 
 from core import Run, fetch, upsert_series
@@ -346,15 +348,30 @@ TRADE_NAMES = {"Korea, South": "South Korea"}
 TRADE_FLOWS = (("imports", "I_COMMODITY", "GEN_VAL_MO", "imports from"), ("exports", "E_COMMODITY", "ALL_VAL_MO", "exports to"))
 
 
-def _census(flow, key, **params):
-    try:
-        r = fetch(f"https://api.census.gov/data/timeseries/intltrade/{flow}/hs", params={**params, "time": "from 2015-01", "key": key}, timeout=300)
-    except RuntimeError as e:
-        if str(e).startswith("204 from"):
-            return []
-        raise RuntimeError(str(e).replace(key, "[hidden]")) from None   # a connection error quotes the address, key included
-    body = r.json()
-    return [dict(zip(body[0], row)) for row in body[1:]]
+def _census(flow, key, start, **params):
+    """Rows from the trade API. Two years a request, since a longer one runs past the server's time limit (524)."""
+    out, this_year = [], dt.date.today().year
+    for year in range(start, this_year + 1, 2):
+        period = f"from {year}-01 to {min(year + 1, this_year)}-12"
+        for attempt in range(4):
+            try:
+                r = fetch(f"https://api.census.gov/data/timeseries/intltrade/{flow}/hs", params={**params, "time": period, "key": key}, timeout=300)
+                break
+            except RuntimeError as e:
+                if str(e).startswith("204 from"):
+                    r = None
+                    break
+                if not str(e).startswith("524 from") or attempt == 3:
+                    raise RuntimeError(str(e).replace(key, "[hidden]")) from None   # a connection error quotes the address, key included
+                time.sleep(20 * (attempt + 1))
+        if r is None:
+            continue
+        if "json" not in r.headers.get("content-type", ""):
+            title = re.search(r"<title>(.*?)</title>", r.text)
+            raise RuntimeError(f"Census answered with a page, not data: {title[1] if title else 'no title'}. If it says Invalid Key, check CENSUS_API_KEY")
+        body = r.json()
+        out += [dict(zip(body[0], row)) for row in body[1:]]
+    return out
 
 
 def census_trade(con):
@@ -364,15 +381,20 @@ def census_trade(con):
         raise RuntimeError("CENSUS_API_KEY is not set")
     with Run(con, "census_trade") as run_:
         series, size = 0, {}
+        # The whole history once, then the last three years, which hold the revisions.
+        done = con.execute("SELECT 1 FROM cat_run WHERE step='census_trade' AND status='ok' LIMIT 1").fetchone()
+        start = dt.date.today().year - 2 if done else 2015
         for flow, comm, val, words in TRADE_FLOWS:
             # Country codes are four digits; codes starting with 0 or holding an X are groups, of which only the EU is kept.
             got = {}
-            for r in _census(flow, key, get=f"CTY_CODE,CTY_NAME,{val}", **{comm: "-"}):
-                code = r["CTY_CODE"]
-                if not (code.isdigit() and (code[0] != "0" or code == "0003")):
-                    continue
-                name = r["CTY_NAME"].title()
-                got.setdefault((code, TRADE_NAMES.get(name, name)), []).append((f"{r['time']}-01", r[val]))
+            rows = [r for r in _census(flow, key, start, get=f"CTY_CODE,CTY_NAME,{val}", **{comm: "-"})
+                    if r["CTY_CODE"] and r["CTY_CODE"].isdigit() and (r["CTY_CODE"][0] != "0" or r["CTY_CODE"] == "0003")]
+            # Some months leave the name out, so a partner keeps the latest name Census gave its code.
+            names = {r["CTY_CODE"]: r["CTY_NAME"].title() for r in sorted(rows, key=lambda r: r["time"]) if r["CTY_NAME"]}
+            for r in rows:
+                name = names.get(r["CTY_CODE"])
+                if name:
+                    got.setdefault((r["CTY_CODE"], TRADE_NAMES.get(name, name)), []).append((f"{r['time']}-01", r[val]))
             for (code, name), obs in got.items():
                 obs.sort()
                 size[(code, name)] = size.get((code, name), 0) + sum(float(v or 0) for _, v in obs[-12:])
@@ -382,10 +404,13 @@ def census_trade(con):
         top = sorted((k for k in size if k[0] != "0003"), key=size.get, reverse=True)[:TRADE_TOP] + [k for k in size if k[0] == "0003"]
         for flow, comm, val, words in TRADE_FLOWS:
             for code, name in top:
-                chapters = {}
-                for r in _census(flow, key, get=f"{comm},{comm}_SDESC,{val}", COMM_LVL="HS2", CTY_CODE=code):
-                    chapters.setdefault((r[comm], r[f"{comm}_SDESC"]), []).append((f"{r['time']}-01", r[val]))
-                for (hs, desc), obs in chapters.items():
+                chapters, text = {}, {}
+                for r in _census(flow, key, start, get=f"{comm},{comm}_SDESC,{val}", COMM_LVL="HS2", CTY_CODE=code):
+                    if r[f"{comm}_SDESC"]:
+                        text[r[comm]] = r[f"{comm}_SDESC"]
+                    chapters.setdefault(r[comm], []).append((f"{r['time']}-01", r[val]))
+                for hs, obs in chapters.items():
+                    desc = text.get(hs, "other goods")
                     obs.sort()
                     recent = [float(v or 0) for _, v in obs[-12:]]
                     if sum(recent) / max(1, len(recent)) < MIN_MONTHLY_USD:
@@ -395,4 +420,6 @@ def census_trade(con):
                     series += 1
                 con.commit()
         run_.note(f"{series} series")
-        _require(con, run_, [] if series else ["every partner"])
+        # The size guard in _require does not fit here: a later run is meant to return far fewer readings than the first.
+        if series < 400:
+            raise RuntimeError(f"only {series} trade series came back")

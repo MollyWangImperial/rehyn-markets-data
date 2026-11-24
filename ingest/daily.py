@@ -30,8 +30,10 @@ from core import ROOT, Run, init_db, scrub  # noqa: E402
 from sources import AFTER, CADENCE_DAYS, SOURCES  # noqa: E402
 
 import checkin  # noqa: E402
+import quota  # noqa: E402
 
-LIMIT = {"gdelt": 3 * 3600, "sec_facts": 3 * 3600, "sec_filings": 2 * 3600, "wiki_events": 2 * 3600, "news_sentiment": 3 * 3600}
+LIMIT = {"gdelt": 3 * 3600, "sec_facts": 3 * 3600, "sec_filings": 2 * 3600, "wiki_events": 2 * 3600, "news_sentiment": 3 * 3600,
+         "census_trade": 3 * 3600}   # its first load reads eleven years and takes about two hours
 DEFAULT_LIMIT = 3600
 # The GDELT headline archive is rate limited (429) and can run for hours, so it runs last with a short limit: the
 # rebuild, the public edition and the copy to Turso never wait on it. What it fetches is in the next day's rebuild.
@@ -118,7 +120,18 @@ def collect(args, cfg, log, run_, con, now):
     if public == "ok" and not args.no_sync:
         turso = cfg.get("TURSO_ENV")
         if turso and pathlib.Path(turso).exists():
-            note("turso sync", step([sys.executable, "-I", str(HERE / "sync_turso.py"), str(out / "public.db"), "--env", turso], log, 3 * 3600))
+            # The sync pauses before Turso's monthly write allowance runs out. A pause has its own alert (the job turso-sync),
+            # so it never hides another failure of the daily run, and it clears with the first sync after the renewal.
+            may, why = quota.check(turso)
+            if may:
+                result = step([sys.executable, "-I", str(HERE / "sync_turso.py"), str(out / "public.db"), "--env", turso], log, 3 * 3600)
+                note("turso sync", result)
+                blocked = "writes are blocked" in result or "Operation was blocked" in result
+                if blocked or result == "ok":
+                    checkin.send(quota.JOB, not blocked, f"Turso blocked the sync's writes. {quota.check(turso)[1]}" if blocked else f"synced, {why}", 1440)
+            else:
+                run_.note(f"turso sync: {why}")
+                checkin.send(quota.JOB, False, why, 1440)
         else:
             note("turso sync", "skipped, TURSO_ENV is not set")
     for s in [s for s in picked if s["id"] in LAST]:
