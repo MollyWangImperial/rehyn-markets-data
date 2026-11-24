@@ -39,6 +39,7 @@ LEVELS = {
     "fts_doc": ["dataset", "substr(date,1,4)", "substr(date,1,7)"],
     "ref_sec_ticker": ["substr(ticker,1,1)"],
 }
+WHOLE_MAX, WHOLE_PARTS = 5000, 4   # a partition of at most this many rows, with this many changed parts, can go whole
 LAST = ("cat_category", "cat_dataset", "cat_source")   # the catalogue goes last, after the data it describes
 # ml_ holds the stored sentiment model, kept only in Turso. live_ holds sentiment results, which
 # ingest/sentiment_job.py sends every 15 minutes; comparing them daily would rewrite them for nothing.
@@ -178,6 +179,15 @@ def compare(remote, local, table, cols, levels, conds, stats):
     w, a = where(conds)
     here = {r[0]: tuple(r[1:]) for r in local.execute(f'SELECT {expr} p, {sums} FROM "{table}"{w} GROUP BY p', a)}
     there = {r[0]: tuple(r[1:]) for r in remote.rows(f'SELECT {expr} p, {sums} FROM "{table}"{w} GROUP BY p', a)}
+    if conds:
+        # A source that revises much of its history would otherwise be sent one month at a time. When several parts of a
+        # small partition, and at least half of them, changed, it goes in one piece. A short series whose only year or
+        # two gained a reading is still refined, so a daily series is not resent whole every day.
+        total = sum(v[0] for v in here.values())
+        parts = sum(1 for k, v in here.items() if there.get(k) != v)
+        if total <= WHOLE_MAX and parts >= WHOLE_PARTS and parts * 2 >= len(here):
+            send(remote, local, table, cols, conds, stats)
+            return
     for key in sorted(set(here) | set(there), key=lambda k: (k is None, str(k))):
         if here.get(key) == there.get(key):
             continue

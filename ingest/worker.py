@@ -7,8 +7,8 @@
   python -I ingest/worker.py
 
 Settings come from the service's environment and are written to data/collector.env and data/turso.env on the disk at
-start, so the scripts read them as they do on a PC: REHYN_SEC_CONTACT, SENTIMENT_DB_URL, SENTIMENT_DB_TOKEN, TURSO_ORG
-and TURSO_API_TOKEN. Lock files left by the last container are cleared first, since their process ids mean nothing in a
+start, so the scripts read them as they do on a PC: REHYN_SEC_CONTACT, SENTIMENT_DB_URL, SENTIMENT_DB_TOKEN,
+CENSUS_API_KEY, TURSO_ORG and TURSO_API_TOKEN. Lock files left by the last container are cleared first, since their process ids mean nothing in a
 new one. The scripts' own logs are copied to this process's output, so they show in Render's log stream. Nothing runs
 until data/ready exists, which the copy of the PC's data onto the disk creates last.
 """
@@ -29,7 +29,7 @@ LOGS = DATA / "daily"
 EVERY = int(os.environ.get("REHYN_SENTIMENT_EVERY", "900"))
 DAILY_AT = dt.time.fromisoformat(os.environ.get("REHYN_DAILY_AT", "06:30"))
 ZONE = ZoneInfo(os.environ.get("REHYN_DAILY_ZONE", "Europe/London"))
-SETTINGS = ("REHYN_SEC_CONTACT", "SENTIMENT_DB_URL", "SENTIMENT_DB_TOKEN")
+SETTINGS = ("REHYN_SEC_CONTACT", "SENTIMENT_DB_URL", "SENTIMENT_DB_TOKEN", "CENSUS_API_KEY")
 ENV = dict(os.environ, REHYN_SUPERVISED="1", PYTHONIOENCODING="utf-8")
 
 stopping = threading.Event()

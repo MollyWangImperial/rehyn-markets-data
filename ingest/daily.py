@@ -9,6 +9,7 @@ Settings come from data/collector.env (git-ignored), one KEY=value per line:
   REHYN_SEC_CONTACT   contact address the SEC requires in the crawler's user agent. Sent to sec.gov only.
   TURSO_ENV           path to the .env holding TURSO_ORG and TURSO_API_TOKEN for the sync
   JOBS_TOKEN          token for the AI service's job check-ins (checkin.py); the environment is read first
+  CENSUS_API_KEY      free key for the Census trade API (census_trade); the environment is read first
 
 Each source runs in its own process with a time limit, so one failure cannot stop the rest. GDELT's headline archive
 runs last with a 20 minute limit. The run ends with a check-in naming any source, step or sync that failed.
@@ -25,7 +26,7 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from core import ROOT, Run, init_db  # noqa: E402
+from core import ROOT, Run, init_db, scrub  # noqa: E402
 from sources import AFTER, CADENCE_DAYS, SOURCES  # noqa: E402
 
 import checkin  # noqa: E402
@@ -67,25 +68,25 @@ def run_source(s, cfg, log, limit=None):
         if not contact:
             return "skipped: no SEC contact in data/collector.env"
         env["REHYN_USER_AGENT"] = f"RehynMarketsResearch/0.1 {contact}"
-    try:
-        p = subprocess.run([sys.executable, "-I", str(HERE / "run_one.py"), s["module"], s["fn"]], cwd=ROOT, env=env,
-                           stdout=log, stderr=subprocess.STDOUT, timeout=limit or LIMIT.get(s["id"], DEFAULT_LIMIT))
-        return "ok" if p.returncode == 0 else f"exit {p.returncode}"
-    except subprocess.TimeoutExpired:
-        return "stopped at its time limit, it resumes next run"
+    for key in s.get("keys", ()):
+        if not (env.get(key) or cfg.get(key)):
+            return f"skipped: {key} is not set"
+        env[key] = env.get(key) or cfg[key]
+    result = step([sys.executable, "-I", str(HERE / "run_one.py"), s["module"], s["fn"]], log, limit or LIMIT.get(s["id"], DEFAULT_LIMIT), env)
+    return "stopped at its time limit, it resumes next run" if result == "stopped at its time limit" else result
 
 
-def step(cmd, log, limit):
-    """Runs one rebuild step. Returns 'ok' or why it failed, with the last line of its error output."""
+def step(cmd, log, limit, env=None):
+    """Runs one source or rebuild step. Returns 'ok' or why it failed, with the last line of its error output."""
     try:
-        p = subprocess.run(cmd, cwd=ROOT, stdout=log, stderr=subprocess.PIPE, timeout=limit, text=True, encoding="utf-8", errors="replace")
+        p = subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.PIPE, timeout=limit, text=True, encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired:
         return "stopped at its time limit"
-    log.write(p.stderr or "")
+    log.write(scrub(p.stderr or ""))
     log.flush()
     if p.returncode == 0:
         return "ok"
-    last = next((x.strip() for x in reversed((p.stderr or "").splitlines()) if x.strip()), "")
+    last = next((scrub(x.strip()) for x in reversed((p.stderr or "").splitlines()) if x.strip()), "")
     return f"exit {p.returncode}" + (f": {last[:200]}" if last else "")
 
 
@@ -93,17 +94,20 @@ def collect(args, cfg, log, run_, con, now):
     """The whole run. Returns the problems found, for the check-in."""
     problems = []
 
-    def note(what, result):
+    def note(what, result, waiting=False):
         run_.note(f"{what}: {result}")
         log.flush()
-        if result != "ok":
+        if result != "ok" and not waiting:
             problems.append(f"{what} ({result})")
 
     picked = [s for s in SOURCES if s["status"] == "active" and s["module"] and (s["id"] in args.only if args.only else due(con, s, now))]
     for s in [s for s in picked if s["id"] not in LAST]:
         log.write(f"--- {s['id']}\n")
         log.flush()
-        note(s["id"], run_source(s, cfg, log))
+        result = run_source(s, cfg, log)
+        # A source still waiting for its first key is listed in the log, but does not turn the whole run into a failure
+        # alert every day. Once it has collected, a missing key is a problem like any other.
+        note(s["id"], result, waiting=bool(s.get("keys")) and result.startswith("skipped") and last_ok(con, s["run"]) is None)
     for mod, fn in AFTER:
         log.write(f"--- {mod}.{fn}\n")
         log.flush()

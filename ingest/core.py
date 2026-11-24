@@ -3,6 +3,7 @@ import datetime as dt
 import functools
 import os
 import pathlib
+import re
 import sqlite3
 import threading
 import time
@@ -29,8 +30,18 @@ HOST_GAP = {
     "api.exchange.coinbase.com": 0.2,
     "fred.stlouisfed.org": 0.5,
     "www.federalreserve.gov": 0.3,
+    "sdmx.oecd.org": 3.0,
+    "api.census.gov": 0.5,
 }
 DEFAULT_GAP = 0.25
+
+# Anything that looks like a key in an address is blanked before it reaches a log, cat_run or an alert.
+SECRET = re.compile(r"(?i)((?:api_?key|token|key|secret|password)=)[^&\s'\")]+")
+
+
+def scrub(text):
+    return SECRET.sub(r"\1[hidden]", str(text))
+
 
 _last = {}
 _lock = threading.Lock()
@@ -94,7 +105,7 @@ def fetch(url, *, params=None, headers=None, timeout=60, retries=4, ok_404=False
             time.sleep(min(delay, 60))
             continue
         raise RuntimeError(f"{r.status_code} from {url}")
-    raise RuntimeError(f"gave up on {url}: {last}")
+    raise RuntimeError(scrub(f"gave up on {url}: {last}"))
 
 
 def restricted(reason):
@@ -136,13 +147,14 @@ class Run:
         return self
 
     def note(self, msg):
+        msg = scrub(msg)
         self.notes.append(msg)
         print(f"[{self.step}] {msg}", flush=True)
 
     def __exit__(self, kind, exc, tb):
         status = "ok" if kind is None else "failed"
         if exc is not None:
-            self.notes.append(f"{kind.__name__}: {exc}")
+            self.notes.append(scrub(f"{kind.__name__}: {exc}"))
         self.con.rollback()
         self.con.execute(
             "UPDATE cat_run SET finished_at=?, status=?, rows_written=?, message=? WHERE run_id=?",
@@ -154,7 +166,7 @@ class Run:
 
 
 def upsert_series(con, series_id, dataset_id, title, units, frequency, rows, country=None, topic=None):
-    """rows is an iterable of (date, value). Empty and non-numeric values are dropped."""
+    """rows is an iterable of (date, value). Empty, non-numeric and infinite values are dropped."""
     clean = []
     for d, v in rows:
         if d is None or v is None or v == "":
@@ -163,7 +175,7 @@ def upsert_series(con, series_id, dataset_id, title, units, frequency, rows, cou
             f = float(v)
         except (TypeError, ValueError):
             continue
-        if f != f:
+        if f != f or abs(f) == float("inf"):
             continue
         clean.append((series_id, str(d)[:10], f))
     if not clean:
